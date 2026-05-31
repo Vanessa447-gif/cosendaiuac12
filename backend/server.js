@@ -6,7 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const app = express();
 
-// ========== CORS COMPLET (LA SOLUTION ULTIME) ==========
+// ========== CORS COMPLET ==========
 app.use((req, res, next) => {
     // Permettre à toutes les origines
     res.header('Access-Control-Allow-Origin', '*');
