@@ -1,26 +1,20 @@
 const jwt = require('jsonwebtoken');
 
-const authMiddleware = (req, res, next) => {
+module.exports = (req, res, next) => {
     const token = req.header('Authorization')?.replace('Bearer ', '');
-
+    
     if (!token) {
-        return res.status(401).json({
-            success: false,
-            message: 'Accès non autorisé'
-        });
+        return res.status(401).json({ success: false, message: 'Accès non autorisé' });
     }
-
+    
     try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        req.userId = decoded.userId;
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret_key_2024');
+        req.userId = decoded.id;
         req.userRole = decoded.role;
+        req.userServiceId = decoded.service_id;
+        req.canAccessAllServices = decoded.can_access_all_services || false;
         next();
     } catch (error) {
-        res.status(401).json({
-            success: false,
-            message: 'Token invalide'
-        });
+        return res.status(401).json({ success: false, message: 'Token invalide' });
     }
 };
-
-module.exports = authMiddleware;

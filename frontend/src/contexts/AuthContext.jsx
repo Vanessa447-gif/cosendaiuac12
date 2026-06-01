@@ -1,54 +1,45 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
-import toast from 'react-hot-toast';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 
 const AuthContext = createContext();
 
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) throw new Error('useAuth must be used within AuthProvider');
-  return context;
-};
+export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+    const [user, setUser] = useState(null);
+    const [currentService, setCurrentService] = useState(null);
+    const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const storedUser = localStorage.getItem('user');
-    const storedToken = localStorage.getItem('token');
-    
-    if (storedUser && storedToken) {
-      setUser(JSON.parse(storedUser));
-    }
-    setLoading(false);
-  }, []);
+    useEffect(() => {
+        const token = localStorage.getItem('token');
+        const savedUser = localStorage.getItem('user');
+        const savedService = localStorage.getItem('currentService');
+        
+        if (token && savedUser) {
+            setUser(JSON.parse(savedUser));
+            if (savedService) setCurrentService(JSON.parse(savedService));
+        }
+        setLoading(false);
+    }, []);
 
-  const login = (userData, token) => {
-    localStorage.setItem('token', token);
-    localStorage.setItem('user', JSON.stringify(userData));
-    setUser(userData);
-  };
+    const login = (userData, token, serviceData) => {
+        localStorage.setItem('token', token);
+        localStorage.setItem('user', JSON.stringify(userData));
+        if (serviceData) {
+            localStorage.setItem('currentService', JSON.stringify(serviceData));
+            setCurrentService(serviceData);
+        }
+        setUser(userData);
+    };
 
-  const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    setUser(null);
-    toast.success('Déconnexion réussie');
-  };
+    const logout = () => {
+        localStorage.clear();
+        setUser(null);
+        setCurrentService(null);
+    };
 
-  const value = {
-    user,
-    loading,
-    login,
-    logout,
-    isAuthenticated: !!user,
-    isAdmin: user?.role === 'admin',
-    isArchivist: user?.role === 'admin' || user?.role === 'archiviste'
-  };
-
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
-  );
+    return (
+        <AuthContext.Provider value={{ user, currentService, loading, login, logout }}>
+            {children}
+        </AuthContext.Provider>
+    );
 };
