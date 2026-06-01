@@ -1,6 +1,5 @@
 const db = require('../config/database');
 
-// Récupérer les infos du service connecté
 const getCurrentService = async (req, res) => {
     try {
         const serviceId = req.userServiceId;
@@ -16,35 +15,30 @@ const getCurrentService = async (req, res) => {
         
         res.json({ success: true, service: services[0] });
     } catch (error) {
-        console.error('Erreur:', error);
+        console.error('Erreur getCurrentService:', error);
         res.status(500).json({ success: false, message: 'Erreur serveur' });
     }
 };
 
-// Récupérer les statistiques du service
 const getServiceStats = async (req, res) => {
     try {
         const serviceId = req.userServiceId;
         
-        // Total documents actifs
         const [totalDocs] = await db.execute(
             'SELECT COUNT(*) as total FROM documents WHERE service_id = ? AND status = "actif"',
             [serviceId]
         );
         
-        // Total vues
         const [totalViews] = await db.execute(
             'SELECT SUM(views_count) as total FROM documents WHERE service_id = ?',
             [serviceId]
         );
         
-        // Total téléchargements
         const [totalDownloads] = await db.execute(
             'SELECT SUM(downloads_count) as total FROM documents WHERE service_id = ?',
             [serviceId]
         );
         
-        // Documents par catégorie
         const [categoryStats] = await db.execute(`
             SELECT c.id, c.name_fr, c.name_en, c.color, COUNT(d.id) as count
             FROM categories c
@@ -53,7 +47,6 @@ const getServiceStats = async (req, res) => {
             GROUP BY c.id
         `, [serviceId, serviceId]);
         
-        // Utilisateurs actifs du service
         const [activeUsers] = await db.execute(
             'SELECT COUNT(*) as total FROM users WHERE service_id = ? AND is_active = 1',
             [serviceId]
@@ -69,14 +62,12 @@ const getServiceStats = async (req, res) => {
                 documentsByCategory: categoryStats
             }
         });
-        
     } catch (error) {
-        console.error('Erreur:', error);
+        console.error('Erreur getServiceStats:', error);
         res.status(500).json({ success: false, message: 'Erreur serveur' });
     }
 };
 
-// Récupérer les catégories du service
 const getCategories = async (req, res) => {
     try {
         const serviceId = req.userServiceId;
@@ -88,12 +79,11 @@ const getCategories = async (req, res) => {
         
         res.json({ success: true, categories });
     } catch (error) {
-        console.error('Erreur:', error);
+        console.error('Erreur getCategories:', error);
         res.status(500).json({ success: false, categories: [] });
     }
 };
 
-// Récupérer l'historique du service
 const getServiceHistory = async (req, res) => {
     try {
         const serviceId = req.userServiceId;
@@ -111,7 +101,7 @@ const getServiceHistory = async (req, res) => {
         
         res.json({ success: true, history });
     } catch (error) {
-        console.error('Erreur:', error);
+        console.error('Erreur getServiceHistory:', error);
         res.status(500).json({ success: false, history: [] });
     }
 };
