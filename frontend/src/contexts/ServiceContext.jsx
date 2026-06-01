@@ -16,6 +16,7 @@ export const ServiceProvider = ({ children }) => {
     const [service, setService] = useState(null);
     const [stats, setStats] = useState(null);
     const [categories, setCategories] = useState([]);
+    const [history, setHistory] = useState([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -53,6 +54,13 @@ export const ServiceProvider = ({ children }) => {
             const catData = await catRes.json();
             if (catData.success) setCategories(catData.categories);
             
+            // Charger l'historique
+            const histRes = await fetch('http://localhost:5000/api/services/history', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            const histData = await histRes.json();
+            if (histData.success) setHistory(histData.history);
+            
         } catch (error) {
             console.error('Erreur chargement service:', error);
         } finally {
@@ -72,8 +80,23 @@ export const ServiceProvider = ({ children }) => {
         }
     };
 
+    const refreshHistory = async () => {
+        try {
+            const res = await fetch('http://localhost:5000/api/services/history', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            const data = await res.json();
+            if (data.success) setHistory(data.history);
+        } catch (error) {
+            console.error('Erreur refresh history:', error);
+        }
+    };
+
     return (
-        <ServiceContext.Provider value={{ service, stats, categories, loading, refreshStats }}>
+        <ServiceContext.Provider value={{ 
+            service, stats, categories, history, loading, 
+            refreshStats, refreshHistory, loadServiceData 
+        }}>
             {children}
         </ServiceContext.Provider>
     );

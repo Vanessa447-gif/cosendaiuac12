@@ -1,6 +1,6 @@
 const db = require('../config/database');
 
-// Récupérer les informations du service actuel
+// Récupérer les infos du service connecté
 const getCurrentService = async (req, res) => {
     try {
         const serviceId = req.userServiceId;
@@ -93,25 +93,6 @@ const getCategories = async (req, res) => {
     }
 };
 
-// Récupérer les utilisateurs du service
-const getServiceUsers = async (req, res) => {
-    try {
-        const serviceId = req.userServiceId;
-        
-        const [users] = await db.execute(`
-            SELECT id, username, full_name, email, role, department, is_active, created_at
-            FROM users 
-            WHERE service_id = ? OR can_access_all_services = 1
-            ORDER BY full_name
-        `, [serviceId]);
-        
-        res.json({ success: true, users });
-    } catch (error) {
-        console.error('Erreur:', error);
-        res.status(500).json({ success: false, users: [] });
-    }
-};
-
 // Récupérer l'historique du service
 const getServiceHistory = async (req, res) => {
     try {
@@ -139,6 +120,5 @@ module.exports = {
     getCurrentService,
     getServiceStats,
     getCategories,
-    getServiceUsers,
     getServiceHistory
 };

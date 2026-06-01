@@ -5,7 +5,6 @@ const {
     getCurrentService,
     getServiceStats,
     getCategories,
-    getServiceUsers,
     getServiceHistory
 } = require('../controllers/serviceController');
 
@@ -16,7 +15,6 @@ router.use(authMiddleware);
 router.get('/current', getCurrentService);
 router.get('/stats', getServiceStats);
 router.get('/categories', getCategories);
-router.get('/users', getServiceUsers);
 router.get('/history', getServiceHistory);
 
 module.exports = router;
