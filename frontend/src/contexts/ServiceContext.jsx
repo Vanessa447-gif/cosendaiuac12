@@ -13,76 +13,67 @@ export const useService = () => {
 
 export const ServiceProvider = ({ children }) => {
     const { user, token } = useAuth();
-    const [services, setServices] = useState([]);
-    const [currentService, setCurrentService] = useState(null);
+    const [service, setService] = useState(null);
+    const [stats, setStats] = useState(null);
+    const [categories, setCategories] = useState([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         if (user) {
-            fetchServices();
+            loadServiceData();
         } else {
             setLoading(false);
         }
     }, [user]);
 
-    const fetchServices = async () => {
+    const loadServiceData = async () => {
         setLoading(true);
         try {
-            const response = await fetch('http://localhost:5000/api/services/my-services', {
+            // Charger les infos du service
+            const serviceRes = await fetch('http://localhost:5000/api/services/current', {
                 headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
             });
-            const data = await response.json();
-            
-            if (data.success && data.services.length > 0) {
-                setServices(data.services);
-                
-                // Récupérer le dernier service utilisé
-                const savedServiceId = localStorage.getItem('currentServiceId');
-                const savedService = savedServiceId ? 
-                    data.services.find(s => s.id === parseInt(savedServiceId)) : null;
-                
-                if (savedService) {
-                    setCurrentService(savedService);
-                } else {
-                    setCurrentService(data.services[0]);
-                    localStorage.setItem('currentServiceId', data.services[0].id);
-                }
+            const serviceData = await serviceRes.json();
+            if (serviceData.success) {
+                setService(serviceData.service);
+                localStorage.setItem('currentService', JSON.stringify(serviceData.service));
             }
+            
+            // Charger les statistiques
+            const statsRes = await fetch('http://localhost:5000/api/services/stats', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            const statsData = await statsRes.json();
+            if (statsData.success) setStats(statsData.stats);
+            
+            // Charger les catégories
+            const catRes = await fetch('http://localhost:5000/api/services/categories', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            const catData = await catRes.json();
+            if (catData.success) setCategories(catData.categories);
+            
         } catch (error) {
-            console.error('Erreur chargement services:', error);
+            console.error('Erreur chargement service:', error);
         } finally {
             setLoading(false);
         }
     };
 
-    const switchService = async (service) => {
-        setCurrentService(service);
-        localStorage.setItem('currentServiceId', service.id);
-        
-        // Notifier le backend du changement
+    const refreshStats = async () => {
         try {
-            await fetch('http://localhost:5000/api/services/switch', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
-                },
-                body: JSON.stringify({ service_id: service.id })
+            const res = await fetch('http://localhost:5000/api/services/stats', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
             });
+            const data = await res.json();
+            if (data.success) setStats(data.stats);
         } catch (error) {
-            console.error('Erreur switch service:', error);
+            console.error('Erreur refresh stats:', error);
         }
     };
 
-    const value = {
-        services,
-        currentService,
-        switchService,
-        loading
-    };
-
     return (
-        <ServiceContext.Provider value={value}>
+        <ServiceContext.Provider value={{ service, stats, categories, loading, refreshStats }}>
             {children}
         </ServiceContext.Provider>
     );

@@ -11,8 +11,7 @@ import {
     EyeIcon, 
     ArrowDownTrayIcon, 
     DocumentTextIcon,
-    PlusIcon,
-    FolderIcon
+    PlusIcon
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 
@@ -22,36 +21,22 @@ const Documents = () => {
     const [search, setSearch] = useState('');
     const [selectedDocument, setSelectedDocument] = useState(null);
     const [modalOpen, setModalOpen] = useState(false);
-    const [categories, setCategories] = useState([]);
     const { user } = useAuth();
     const { t, language } = useLanguage();
-    const { currentService } = useService();
+    const { service, categories, refreshStats } = useService();
     const navigate = useNavigate();
 
     useEffect(() => {
-        if (currentService) {
+        if (service) {
             loadDocuments();
-            loadCategories();
         }
-    }, [search, currentService]);
+    }, [search, service]);
 
     const loadDocuments = async () => {
         setLoading(true);
-        const result = await documentAPI.getAll(0, 50, search, currentService?.id);
+        const result = await documentAPI.getAll(0, 50, search, service?.id);
         if (result.success) setDocuments(result.documents || []);
         setLoading(false);
-    };
-
-    const loadCategories = async () => {
-        try {
-            const response = await fetch(`http://localhost:5000/api/services/${currentService?.id}/categories`, {
-                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-            });
-            const data = await response.json();
-            if (data.success) setCategories(data.categories);
-        } catch (error) {
-            console.error('Erreur:', error);
-        }
     };
 
     const handleView = (doc) => {
@@ -65,12 +50,16 @@ const Documents = () => {
         if (result.success) {
             toast.success('Document supprimé');
             loadDocuments();
+            refreshStats();
         }
     };
 
     const handleDownload = async (doc) => {
         try {
-            await fetch(`http://localhost:5000/api/documents/${doc.id}/download`, { method: 'POST' });
+            await fetch(`http://localhost:5000/api/documents/${doc.id}/download`, { 
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
             window.open(`http://localhost:5000${doc.file_path}`, '_blank');
             toast.success('Téléchargement démarré');
         } catch (error) {
@@ -88,17 +77,17 @@ const Documents = () => {
 
     return (
         <div className="space-y-6">
-            {/* Header avec service */}
+            {/* Header */}
             <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
                 <div>
                     <div className="flex items-center gap-2 mb-2">
-                        <span className="text-2xl">{currentService?.icon}</span>
+                        <span className="text-2xl">{service?.icon}</span>
                         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-                            {language === 'fr' ? currentService?.name_fr : currentService?.name_en}
+                            {language === 'fr' ? service?.name_fr : service?.name_en}
                         </h1>
                     </div>
                     <p className="text-gray-500 dark:text-gray-400">
-                        {categories.length} catégories • {documents.length} documents
+                        {categories?.length || 0} catégories • {documents.length} documents
                     </p>
                 </div>
                 {(user?.role === 'admin' || user?.role === 'archiviste') && (
@@ -128,8 +117,11 @@ const Documents = () => {
                 <button className="px-4 py-2 bg-purple-600 text-white rounded-full text-sm whitespace-nowrap">
                     Tous
                 </button>
-                {categories.map(cat => (
-                    <button key={cat.id} className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full text-sm whitespace-nowrap hover:bg-gray-200">
+                {categories?.map(cat => (
+                    <button 
+                        key={cat.id} 
+                        className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full text-sm whitespace-nowrap hover:bg-gray-200"
+                    >
                         {language === 'fr' ? cat.name_fr : cat.name_en}
                     </button>
                 ))}
@@ -150,8 +142,7 @@ const Documents = () => {
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                     {documents.map((doc) => (
                         <div key={doc.id} className="group bg-white dark:bg-gray-800 rounded-2xl shadow-lg hover:shadow-2xl transition-all overflow-hidden">
-                            {/* Service indicator */}
-                            <div className="h-1.5" style={{ backgroundColor: doc.service_color }}></div>
+                            <div className="h-1.5" style={{ backgroundColor: service?.color }}></div>
                             <div className="p-5">
                                 <div className="flex justify-between items-start">
                                     <div className="flex items-start gap-3">
@@ -207,6 +198,7 @@ const Documents = () => {
                     setModalOpen(false);
                     setSelectedDocument(null);
                     loadDocuments();
+                    refreshStats();
                 }}
                 onRefresh={loadDocuments}
                 user={user}
