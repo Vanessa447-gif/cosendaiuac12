@@ -19,27 +19,33 @@ const Upload = () => {
     const [categories, setCategories] = useState([]);
     const { user } = useAuth();
     const { language } = useLanguage();
-    const { currentService } = useService();
+    const { service, refreshStats } = useService();
     const navigate = useNavigate();
 
     useEffect(() => {
-        if (currentService) {
-            loadCategories();
-        }
-    }, [currentService]);
+        loadCategories();
+    }, []);
 
     const loadCategories = async () => {
         try {
-            const response = await fetch(`http://localhost:5000/api/services/${currentService?.id}/categories`, {
+            console.log('🔍 Chargement des catégories...');
+            const response = await fetch('http://localhost:5000/api/services/categories', {
                 headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
             });
             const data = await response.json();
-            if (data.success && data.categories.length > 0) {
+            console.log('📦 Catégories reçues:', data);
+            
+            if (data.success && data.categories) {
                 setCategories(data.categories);
-                setCategoryId(data.categories[0].id.toString());
+                if (data.categories.length > 0) {
+                    setCategoryId(data.categories[0].id.toString());
+                }
+            } else {
+                console.error('Aucune catégorie trouvée');
             }
         } catch (error) {
-            console.error('Erreur:', error);
+            console.error('Erreur chargement catégories:', error);
+            toast.error('Erreur de chargement des catégories');
         }
     };
 
@@ -85,34 +91,58 @@ const Upload = () => {
         }
 
         setUploading(true);
-        const uploadResult = await documentAPI.upload(file);
-        if (!uploadResult.success) {
-            toast.error(uploadResult.message);
+        
+        try {
+            // 1. Upload du fichier
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            const uploadResponse = await fetch('http://localhost:5000/api/documents/upload', {
+                method: 'POST',
+                body: formData
+            });
+            const uploadResult = await uploadResponse.json();
+            
+            if (!uploadResult.success) {
+                throw new Error(uploadResult.message || "Erreur lors de l'upload");
+            }
+            
+            // 2. Création du document
+            const documentData = {
+                title_fr, title_en,
+                description_fr: description_fr || '',
+                description_en: description_en || '',
+                categoryId: parseInt(categoryId),
+                fileName: uploadResult.fileName,
+                filePath: uploadResult.filePath,
+                fileSize: uploadResult.fileSize,
+                fileType: uploadResult.fileType,
+                uploadedBy: user.id
+            };
+            
+            const docResponse = await fetch('http://localhost:5000/api/documents', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                },
+                body: JSON.stringify(documentData)
+            });
+            const docResult = await docResponse.json();
+            
+            if (docResult.success) {
+                toast.success('Document uploadé avec succès !');
+                if (refreshStats) refreshStats();
+                setTimeout(() => navigate('/documents'), 1500);
+            } else {
+                throw new Error(docResult.message || "Erreur lors de la création");
+            }
+        } catch (error) {
+            console.error('Erreur:', error);
+            toast.error(error.message || 'Erreur lors de l\'upload');
+        } finally {
             setUploading(false);
-            return;
         }
-
-        const documentData = {
-            title_fr, title_en,
-            description_fr: description_fr || '',
-            description_en: description_en || '',
-            categoryId: parseInt(categoryId),
-            fileName: uploadResult.fileName,
-            filePath: uploadResult.filePath,
-            fileSize: uploadResult.fileSize,
-            fileType: uploadResult.fileType,
-            uploadedBy: user.id,
-            service_id: currentService?.id
-        };
-
-        const result = await documentAPI.create(documentData);
-        if (result.success) {
-            toast.success('Document uploadé avec succès !');
-            setTimeout(() => navigate('/documents'), 1500);
-        } else {
-            toast.error(result.message);
-        }
-        setUploading(false);
     };
 
     return (
@@ -122,13 +152,12 @@ const Upload = () => {
             </button>
 
             <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden">
-                {/* Header with service */}
                 <div className="p-6 border-b border-gray-100 dark:border-gray-700">
                     <div className="flex items-center gap-3 mb-2">
-                        <span className="text-3xl">{currentService?.icon}</span>
+                        <span className="text-3xl">{service?.icon}</span>
                         <div>
                             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-                                Uploader un document - {language === 'fr' ? currentService?.name_fr : currentService?.name_en}
+                                Uploader un document - {language === 'fr' ? service?.name_fr : service?.name_en}
                             </h1>
                             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                                 Ajoutez un nouveau document à l'archive du service
@@ -204,12 +233,16 @@ const Upload = () => {
                             className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-purple-500"
                             required
                         >
+                            <option value="">Sélectionnez une catégorie</option>
                             {categories.map(cat => (
                                 <option key={cat.id} value={cat.id}>
                                     {language === 'fr' ? cat.name_fr : cat.name_en}
                                 </option>
                             ))}
                         </select>
+                        {categories.length === 0 && (
+                            <p className="text-sm text-red-500 mt-1">Aucune catégorie disponible pour ce service</p>
+                        )}
                     </div>
 
                     {/* Upload area */}
