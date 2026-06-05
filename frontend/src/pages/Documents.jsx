@@ -3,15 +3,15 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useService } from '../contexts/ServiceContext';
-import { documentAPI } from '../services/api';
-import DocumentModal from '../components/DocumentModal';
+import TextEditor from '../components/TextEditor';
 import { 
     MagnifyingGlassIcon, 
     TrashIcon, 
     EyeIcon, 
     ArrowDownTrayIcon, 
     DocumentTextIcon,
-    PlusIcon
+    PlusIcon,
+    PencilSquareIcon
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 
@@ -21,9 +21,11 @@ const Documents = () => {
     const [search, setSearch] = useState('');
     const [selectedDocument, setSelectedDocument] = useState(null);
     const [modalOpen, setModalOpen] = useState(false);
+    const [editorOpen, setEditorOpen] = useState(false);
+    const [editingDocument, setEditingDocument] = useState(null);
     const { user } = useAuth();
-    const { t, language } = useLanguage();
-    const { service, categories, refreshStats } = useService();
+    const { language } = useLanguage();
+    const { service, refreshStats } = useService();
     const navigate = useNavigate();
 
     useEffect(() => {
@@ -34,11 +36,20 @@ const Documents = () => {
 
     const loadDocuments = async () => {
         setLoading(true);
-        const result = await documentAPI.getAll(0, 50, search, service?.id);
-        if (result.success) {
-            setDocuments(result.documents || []);
+        try {
+            const response = await fetch(`http://localhost:5000/api/documents?service_id=${service?.id}&search=${search}`, {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            const data = await response.json();
+            if (data.success) {
+                setDocuments(data.documents || []);
+            }
+        } catch (error) {
+            console.error('Erreur:', error);
+            toast.error('Erreur de chargement');
+        } finally {
+            setLoading(false);
         }
-        setLoading(false);
     };
 
     const handleView = (doc) => {
@@ -46,47 +57,55 @@ const Documents = () => {
         setModalOpen(true);
     };
 
-    const handleDelete = async (id) => {
-        if (!window.confirm('Êtes-vous sûr de vouloir supprimer ce document ?')) return;
-        
-        const result = await documentAPI.delete(id);
-        if (result.success) {
-            toast.success('Document supprimé avec succès');
-            loadDocuments();
-            if (refreshStats) refreshStats();
-        } else {
-            toast.error(result.message || 'Erreur lors de la suppression');
-        }
+    // Fonction pour ouvrir l'éditeur en mode modification
+    const handleEdit = (doc) => {
+        console.log('📝 Modification du document:', doc);
+        setEditingDocument(doc);
+        setEditorOpen(true);
+    };
+
+    const handleNewDocument = () => {
+        setEditingDocument(null);
+        setEditorOpen(true);
     };
 
     const handleDownload = async (doc) => {
         try {
-            // Incrémenter le compteur de téléchargements
-            await fetch(`http://localhost:5000/api/documents/${doc.id}/download`, { 
+            const response = await fetch(`http://localhost:5000/api/documents/${doc.id}/download`, { 
                 method: 'POST',
-                headers: { 
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`,
-                    'Content-Type': 'application/json'
-                }
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
             });
-            
-            // Ouvrir le fichier dans un nouvel onglet
-            const fileUrl = `http://localhost:5000${doc.file_path}`;
-            window.open(fileUrl, '_blank');
-            
-            toast.success('Document ouvert');
-            loadDocuments(); // Rafraîchir pour mettre à jour le compteur
+            const data = await response.json();
+            if (data.success && data.downloadUrl) {
+                window.open(data.downloadUrl, '_blank');
+                toast.success('Téléchargement démarré');
+                loadDocuments();
+            }
         } catch (error) {
             console.error('Erreur téléchargement:', error);
-            toast.error('Erreur lors de l\'ouverture du document');
+            toast.error('Erreur');
         }
     };
 
-    const formatFileSize = (bytes) => {
-        if (!bytes) return '0 B';
-        const sizes = ['B', 'KB', 'MB', 'GB'];
-        const i = Math.floor(Math.log(bytes) / Math.log(1024));
-        return (bytes / Math.pow(1024, i)).toFixed(2) + ' ' + sizes[i];
+    const handleDelete = async (id) => {
+        if (!window.confirm('Supprimer ce document ?')) return;
+        try {
+            const response = await fetch(`http://localhost:5000/api/documents/${id}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            const data = await response.json();
+            if (data.success) {
+                toast.success('Document supprimé');
+                loadDocuments();
+                if (refreshStats) refreshStats();
+            } else {
+                toast.error(data.message || 'Erreur lors de la suppression');
+            }
+        } catch (error) {
+            console.error('Erreur suppression:', error);
+            toast.error('Erreur');
+        }
     };
 
     if (loading) {
@@ -109,17 +128,27 @@ const Documents = () => {
                         </h1>
                     </div>
                     <p className="text-gray-500 dark:text-gray-400">
-                        {categories?.length || 0} catégories • {documents.length} documents
+                        {documents.length} document(s)
                     </p>
                 </div>
-                {(user?.role === 'admin' || user?.role === 'archiviste') && (
-                    <button 
-                        onClick={() => navigate('/upload')} 
-                        className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:shadow-lg transition-all"
-                    >
-                        <PlusIcon className="h-5 w-5" /> Nouveau document
-                    </button>
-                )}
+                <div className="flex gap-3">
+                    {(user?.role === 'admin' || user?.role === 'archiviste') && (
+                        <>
+                            <button 
+                                onClick={handleNewDocument}
+                                className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-green-500 to-emerald-600 text-white rounded-xl hover:shadow-lg transition-all"
+                            >
+                                <PencilSquareIcon className="h-5 w-5" /> Nouveau document
+                            </button>
+                            <button 
+                                onClick={() => navigate('/upload')} 
+                                className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:shadow-lg transition-all"
+                            >
+                                <PlusIcon className="h-5 w-5" /> Uploader un fichier
+                            </button>
+                        </>
+                    )}
+                </div>
             </div>
 
             {/* Barre de recherche */}
@@ -134,53 +163,27 @@ const Documents = () => {
                 />
             </div>
 
-            {/* Filtres par catégorie */}
-            <div className="flex gap-2 overflow-x-auto pb-2">
-                <button 
-                    onClick={() => setSearch('')}
-                    className={`px-4 py-2 rounded-full text-sm whitespace-nowrap transition-all ${
-                        search === '' 
-                            ? 'bg-purple-600 text-white shadow-md' 
-                            : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200'
-                    }`}
-                >
-                    Tous
-                </button>
-                {categories?.map(cat => (
-                    <button 
-                        key={cat.id} 
-                        onClick={() => setSearch(cat.name_fr)}
-                        className="px-4 py-2 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded-full text-sm whitespace-nowrap hover:bg-gray-200 transition-all"
-                    >
-                        {language === 'fr' ? cat.name_fr : cat.name_en}
-                    </button>
-                ))}
-            </div>
-
             {/* Liste des documents */}
             {documents.length === 0 ? (
                 <div className="text-center py-16 bg-white dark:bg-gray-800 rounded-2xl shadow-lg">
                     <DocumentTextIcon className="h-16 w-16 mx-auto text-gray-400 mb-4" />
                     <p className="text-gray-500 dark:text-gray-400">Aucun document dans ce service</p>
                     {(user?.role === 'admin' || user?.role === 'archiviste') && (
-                        <button 
-                            onClick={() => navigate('/upload')} 
-                            className="mt-4 text-purple-600 hover:underline"
-                        >
-                            Uploader un document
-                        </button>
+                        <div className="flex justify-center gap-4 mt-4">
+                            <button onClick={handleNewDocument} className="text-green-600 hover:underline">
+                                Créer un document
+                            </button>
+                            <button onClick={() => navigate('/upload')} className="text-purple-600 hover:underline">
+                                Uploader un fichier
+                            </button>
+                        </div>
                     )}
                 </div>
             ) : (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                     {documents.map((doc) => (
-                        <div 
-                            key={doc.id} 
-                            className="group bg-white dark:bg-gray-800 rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300 overflow-hidden"
-                        >
-                            {/* Bande colorée du service */}
+                        <div key={doc.id} className="group bg-white dark:bg-gray-800 rounded-2xl shadow-lg hover:shadow-2xl transition-all overflow-hidden">
                             <div className="h-1.5" style={{ backgroundColor: service?.color }}></div>
-                            
                             <div className="p-5">
                                 <div className="flex justify-between items-start">
                                     <div className="flex items-start gap-3">
@@ -192,61 +195,36 @@ const Documents = () => {
                                                 {language === 'fr' ? doc.title_fr : doc.title_en}
                                             </h3>
                                             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 line-clamp-1">
-                                                {language === 'fr' ? doc.description_fr : doc.description_en}
+                                                {doc.description_fr || 'Aucune description'}
                                             </p>
                                         </div>
                                     </div>
-                                    
-                                    {/* Boutons d'action */}
                                     <div className="flex gap-1">
-                                        <button 
-                                            onClick={() => handleView(doc)} 
-                                            className="p-2 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-900/30 rounded-xl transition-all" 
-                                            title="Voir le document"
-                                        >
+                                        <button onClick={() => handleView(doc)} className="p-2 text-purple-600 hover:bg-purple-50 rounded-xl" title="Voir">
                                             <EyeIcon className="h-5 w-5" />
                                         </button>
-                                        <button 
-                                            onClick={() => handleDownload(doc)} 
-                                            className="p-2 text-green-600 hover:bg-green-50 dark:hover:bg-green-900/30 rounded-xl transition-all" 
-                                            title="Télécharger"
-                                        >
+                                        <button onClick={() => handleEdit(doc)} className="p-2 text-green-600 hover:bg-green-50 rounded-xl" title="Modifier">
+                                            <PencilSquareIcon className="h-5 w-5" />
+                                        </button>
+                                        <button onClick={() => handleDownload(doc)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-xl" title="Télécharger">
                                             <ArrowDownTrayIcon className="h-5 w-5" />
                                         </button>
                                         {(user?.role === 'admin' || user?.role === 'archiviste') && (
-                                            <button 
-                                                onClick={() => handleDelete(doc.id)} 
-                                                className="p-2 text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-xl transition-all" 
-                                                title="Supprimer"
-                                            >
+                                            <button onClick={() => handleDelete(doc.id)} className="p-2 text-red-600 hover:bg-red-50 rounded-xl" title="Supprimer">
                                                 <TrashIcon className="h-5 w-5" />
                                             </button>
                                         )}
                                     </div>
                                 </div>
-                                
-                                {/* Métadonnées */}
                                 <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-700">
-                                    <div className="flex flex-wrap justify-between items-center gap-2 text-sm">
-                                        <span 
-                                            className="px-2.5 py-1 rounded-full text-xs font-medium"
-                                            style={{ backgroundColor: `${doc.category_color}20`, color: doc.category_color }}
-                                        >
-                                            {language === 'fr' ? doc.category_name_fr : doc.category_name_en}
+                                    <div className="flex justify-between items-center text-sm">
+                                        <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-600">
+                                            {doc.category_name_fr || 'Sans catégorie'}
                                         </span>
-                                        <div className="flex items-center gap-3 text-gray-500 dark:text-gray-400">
-                                            <span className="flex items-center gap-1">
-                                                📅 {new Date(doc.created_at).toLocaleDateString()}
-                                            </span>
-                                            <span className="flex items-center gap-1">
-                                                👁️ {doc.views_count || 0}
-                                            </span>
-                                            <span className="flex items-center gap-1">
-                                                ⬇️ {doc.downloads_count || 0}
-                                            </span>
-                                            <span className="flex items-center gap-1">
-                                                📦 {formatFileSize(doc.file_size)}
-                                            </span>
+                                        <div className="flex items-center gap-3 text-gray-500">
+                                            <span>📅 {new Date(doc.created_at).toLocaleDateString()}</span>
+                                            <span>👁️ {doc.views_count || 0}</span>
+                                            <span>⬇️ {doc.downloads_count || 0}</span>
                                         </div>
                                     </div>
                                 </div>
@@ -257,18 +235,35 @@ const Documents = () => {
             )}
 
             {/* Modal de visualisation */}
-            <DocumentModal
-                document={selectedDocument}
-                isOpen={modalOpen}
-                onClose={() => {
-                    setModalOpen(false);
-                    setSelectedDocument(null);
-                    loadDocuments();
-                    if (refreshStats) refreshStats();
-                }}
-                onRefresh={loadDocuments}
-                user={user}
-            />
+            {modalOpen && selectedDocument && (
+                <div className="fixed inset-0 z-50 overflow-y-auto">
+                    <div className="fixed inset-0 bg-black bg-opacity-50" onClick={() => setModalOpen(false)} />
+                    <div className="relative min-h-screen flex items-center justify-center p-4">
+                        <div className="relative bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-2xl w-full p-6">
+                            <h2 className="text-xl font-bold mb-4">{selectedDocument.title_fr}</h2>
+                            <p className="text-gray-600 mb-4">{selectedDocument.description_fr || 'Aucune description'}</p>
+                            <button onClick={() => setModalOpen(false)} className="px-4 py-2 bg-gray-300 rounded-lg">Fermer</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Éditeur de texte */}
+            {editorOpen && (
+                <TextEditor
+                    document={editingDocument}
+                    onSave={() => {
+                        setEditorOpen(false);
+                        setEditingDocument(null);
+                        loadDocuments();
+                        if (refreshStats) refreshStats();
+                    }}
+                    onClose={() => {
+                        setEditorOpen(false);
+                        setEditingDocument(null);
+                    }}
+                />
+            )}
         </div>
     );
 };

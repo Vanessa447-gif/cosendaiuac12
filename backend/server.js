@@ -1,120 +1,140 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
 require('dotenv').config();
 
 const app = express();
 
-// CORS - Autoriser toutes les origines pour le développement
+// ========== CORS ==========
 app.use(cors({
-    origin: '*',
+    origin: 'http://localhost:3000',
+    credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization']
+    allowedHeaders: ['Content-Type', 'Authorization', 'userid']
 }));
 app.use(express.json());
 
-// Connexion à la base de données
-const db = require('./config/database');
+// ========== IMPORTS DES ROUTES ==========
+const authRoutes = require('./routes/authRoutes');
+const documentRoutes = require('./routes/documentRoutes');
+const userRoutes = require('./routes/userRoutes');
+const serviceRoutes = require('./routes/serviceRoutes');
+const statsRoutes = require('./routes/statsRoutes');
+const auditRoutes = require('./routes/auditRoutes');
+const editorRoutes = require('./routes/editorRoutes');
+const backupRoutes = require('./routes/backupRoutes');
 
-// ========== ROUTES PUBLIQUES (sans authentification) ==========
+// ========== ROUTES ==========
+app.use('/api/auth', authRoutes);
+app.use('/api/documents', documentRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/services', serviceRoutes);
+app.use('/api/stats', statsRoutes);
+app.use('/api/audit', auditRoutes);
+app.use('/api/editor', editorRoutes);
+app.use('/api/backup', backupRoutes);
+
+// ========== ROUTES SUPPLÉMENTAIRES ==========
+
+// Route pour la récupération des brouillons (GET)
+app.get('/api/backup/drafts', async (req, res) => {
+    try {
+        const db = require('./config/database');
+        const userId = req.userId || 1;
+        
+        const [drafts] = await db.execute(
+            `SELECT * FROM document_drafts WHERE user_id = ? AND expires_at > NOW() ORDER BY last_saved DESC`,
+            [userId]
+        );
+        
+        res.json({ success: true, drafts: drafts || [] });
+    } catch (error) {
+        console.error('Erreur get drafts:', error);
+        res.json({ success: true, drafts: [] });
+    }
+});
+
+// Route pour l'autosave (POST)
+app.post('/api/backup/autosave', async (req, res) => {
+    try {
+        const db = require('./config/database');
+        const { documentId, title, content, serviceId } = req.body;
+        const userId = req.userId || 1;
+        
+        await db.execute(
+            `INSERT INTO server_autosaves (user_id, document_id, title, content)
+             VALUES (?, ?, ?, ?)`,
+            [userId, documentId, title, content]
+        );
+        
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Erreur autosave:', error);
+        res.json({ success: true });
+    }
+});
+
+// Route pour récupérer un brouillon spécifique
+app.get('/api/backup/drafts/:id', async (req, res) => {
+    try {
+        const db = require('./config/database');
+        const { id } = req.params;
+        
+        const [drafts] = await db.execute(
+            `SELECT * FROM document_drafts WHERE id = ?`,
+            [id]
+        );
+        
+        if (drafts.length > 0) {
+            res.json({ success: true, draft: drafts[0] });
+        } else {
+            res.json({ success: false, message: 'Brouillon non trouvé' });
+        }
+    } catch (error) {
+        res.json({ success: false, message: error.message });
+    }
+});
+
+// Route pour supprimer un brouillon
+app.delete('/api/backup/drafts/:id', async (req, res) => {
+    try {
+        const db = require('./config/database');
+        const { id } = req.params;
+        
+        await db.execute(`DELETE FROM document_drafts WHERE id = ?`, [id]);
+        res.json({ success: true });
+    } catch (error) {
+        res.json({ success: false });
+    }
+});
+
+// Servir les fichiers statiques
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Créer les dossiers nécessaires
+const dirs = ['./uploads', './storage', './storage/documents'];
+dirs.forEach(dir => {
+    if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+    }
+});
 
 // Route de test
 app.get('/api/test', (req, res) => {
     res.json({ success: true, message: 'API OK' });
 });
 
-// Route pour récupérer tous les services
-app.get('/api/public/services', async (req, res) => {
-    console.log('📡 Appel de /api/public/services');
-    try {
-        const [services] = await db.execute(
-            'SELECT id, name_fr, name_en, code, description_fr, description_en, color, icon FROM services WHERE is_active = 1 ORDER BY name_fr'
-        );
-        console.log(`✅ ${services.length} services trouvés`);
-        res.json({ success: true, services });
-    } catch (error) {
-        console.error('❌ Erreur:', error);
-        res.status(500).json({ success: false, message: error.message, services: [] });
-    }
-});
-
-// Route pour récupérer un service spécifique
-app.get('/api/public/services/:id', async (req, res) => {
-    console.log(`📡 Appel de /api/public/services/${req.params.id}`);
-    try {
-        const [services] = await db.execute(
-            'SELECT id, name_fr, name_en, code, description_fr, description_en, color, icon FROM services WHERE id = ? AND is_active = 1',
-            [req.params.id]
-        );
-        if (services.length === 0) {
-            return res.status(404).json({ success: false, message: 'Service non trouvé' });
-        }
-        res.json({ success: true, service: services[0] });
-    } catch (error) {
-        console.error('❌ Erreur:', error);
-        res.status(500).json({ success: false, message: error.message });
-    }
-});
-// Route de test Backblaze
-app.get('/api/test-storage', async (req, res) => {
-    const storage = require('./config/storage');
-    
-    try {
-        const testBuffer = Buffer.from('Test Backblaze B2 - ' + new Date().toISOString());
-        const testFileName = `test/test-${Date.now()}.txt`;
-        
-        const uploadResult = await storage.uploadFile(testFileName, testBuffer, 'text/plain');
-        
-        if (uploadResult.success) {
-            const fileUrl = storage.getFileUrl(testFileName);
-            
-            res.json({
-                success: true,
-                message: '✅ Backblaze B2 fonctionne !',
-                testFile: fileUrl,
-                bucket: process.env.BACKBLAZE_BUCKET_NAME,
-                endpoint: process.env.BACKBLAZE_ENDPOINT
-            });
-        } else {
-            res.json({ success: false, error: uploadResult.error });
-        }
-        
-        // Nettoyage
-        await storage.deleteFile(testFileName);
-        
-    } catch (error) {
-        console.error('Erreur test:', error);
-        res.status(500).json({ success: false, error: error.message });
-    }
-});
-
-// ========== ROUTES PROTÉGÉES ==========
-const authRoutes = require('./routes/authRoutes');
-const serviceRoutes = require('./routes/serviceRoutes');
-const documentRoutes = require('./routes/documentRoutes');
-const userRoutes = require('./routes/userRoutes');
-
-app.use('/api/auth', authRoutes);
-app.use('/api/services', serviceRoutes);
-app.use('/api/documents', documentRoutes);
-app.use('/api/users', userRoutes);
-
-// Servir les fichiers uploadés
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-
 // ========== DÉMARRAGE ==========
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-    console.log(`\n${'='.repeat(50)}`);
-    console.log(`🚀 SERVEUR DÉMARRÉ`);
-    console.log(`${'='.repeat(50)}`);
-    console.log(`📡 URL: http://localhost:${PORT}`);
-    console.log(`\n📋 ROUTES DISPONIBLES:`);
-    console.log(`   GET  /api/test`);
-    console.log(`   GET  /api/public/services`);
-    console.log(`   GET  /api/public/services/:id`);
-    console.log(`   POST /api/auth/login`);
-    console.log(`   GET  /api/services/current`);
-    console.log(`   GET  /api/documents`);
-    console.log(`${'='.repeat(50)}\n`);
+    console.log(`\n🚀 Serveur démarré sur http://localhost:${PORT}`);
+    console.log('✅ Routes disponibles:');
+    console.log('   POST /api/auth/login');
+    console.log('   GET  /api/documents');
+    console.log('   GET  /api/editor/documents/:id');
+    console.log('   POST /api/editor/documents');
+    console.log('   PUT  /api/editor/documents/:id');
+    console.log('   GET  /api/backup/drafts');
+    console.log('   POST /api/backup/autosave');
 });
