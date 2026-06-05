@@ -55,6 +55,38 @@ app.get('/api/public/services/:id', async (req, res) => {
         res.status(500).json({ success: false, message: error.message });
     }
 });
+// Route de test Backblaze
+app.get('/api/test-storage', async (req, res) => {
+    const storage = require('./config/storage');
+    
+    try {
+        const testBuffer = Buffer.from('Test Backblaze B2 - ' + new Date().toISOString());
+        const testFileName = `test/test-${Date.now()}.txt`;
+        
+        const uploadResult = await storage.uploadFile(testFileName, testBuffer, 'text/plain');
+        
+        if (uploadResult.success) {
+            const fileUrl = storage.getFileUrl(testFileName);
+            
+            res.json({
+                success: true,
+                message: '✅ Backblaze B2 fonctionne !',
+                testFile: fileUrl,
+                bucket: process.env.BACKBLAZE_BUCKET_NAME,
+                endpoint: process.env.BACKBLAZE_ENDPOINT
+            });
+        } else {
+            res.json({ success: false, error: uploadResult.error });
+        }
+        
+        // Nettoyage
+        await storage.deleteFile(testFileName);
+        
+    } catch (error) {
+        console.error('Erreur test:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
 
 // ========== ROUTES PROTÉGÉES ==========
 const authRoutes = require('./routes/authRoutes');
