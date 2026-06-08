@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useService } from '../contexts/ServiceContext';
-import { documentAPI } from '../services/api';
 import { CloudArrowUpIcon, DocumentTextIcon, CheckCircleIcon, XCircleIcon, ArrowLeftIcon } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 
@@ -15,6 +14,7 @@ const Upload = () => {
     const [categoryId, setCategoryId] = useState('');
     const [file, setFile] = useState(null);
     const [uploading, setUploading] = useState(false);
+    const [progress, setProgress] = useState(0);
     const [dragActive, setDragActive] = useState(false);
     const [categories, setCategories] = useState([]);
     const { user } = useAuth();
@@ -29,8 +29,17 @@ const Upload = () => {
     const loadCategories = async () => {
         try {
             console.log('🔍 Chargement des catégories...');
+            const token = localStorage.getItem('token');
+            if (!token) {
+                console.error('Token manquant');
+                return;
+            }
+            
             const response = await fetch('http://localhost:5000/api/services/categories', {
-                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+                headers: { 
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
             });
             const data = await response.json();
             console.log('📦 Catégories reçues:', data);
@@ -85,31 +94,51 @@ const Upload = () => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        
+        // Vérifications
         if (!title_fr || !title_en || !file || !categoryId) {
             toast.error('Veuillez remplir tous les champs obligatoires');
             return;
         }
 
+        const token = localStorage.getItem('token');
+        if (!token) {
+            toast.error('Vous n\'êtes pas connecté. Veuillez vous reconnecter.');
+            navigate('/login');
+            return;
+        }
+
         setUploading(true);
+        setProgress(0);
         
         try {
-            // 1. Upload du fichier
+            // 1. Upload du fichier vers le serveur
             const formData = new FormData();
             formData.append('file', file);
             
+            console.log('📤 Upload du fichier...');
+            
             const uploadResponse = await fetch('http://localhost:5000/api/documents/upload', {
                 method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                },
                 body: formData
             });
+            
             const uploadResult = await uploadResponse.json();
+            console.log('📥 Réponse upload:', uploadResult);
             
             if (!uploadResult.success) {
                 throw new Error(uploadResult.message || "Erreur lors de l'upload");
             }
             
-            // 2. Création du document
+            setProgress(50);
+            
+            // 2. Création du document dans la base de données
             const documentData = {
-                title_fr, title_en,
+                title_fr,
+                title_en,
                 description_fr: description_fr || '',
                 description_en: description_en || '',
                 categoryId: parseInt(categoryId),
@@ -117,20 +146,26 @@ const Upload = () => {
                 filePath: uploadResult.filePath,
                 fileSize: uploadResult.fileSize,
                 fileType: uploadResult.fileType,
-                uploadedBy: user.id
+                uploadedBy: user?.id || 1,
+                service_id: service?.id
             };
+            
+            console.log('📝 Création du document:', documentData);
             
             const docResponse = await fetch('http://localhost:5000/api/documents', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                    'Authorization': `Bearer ${token}`
                 },
                 body: JSON.stringify(documentData)
             });
+            
             const docResult = await docResponse.json();
+            console.log('📥 Réponse création:', docResult);
             
             if (docResult.success) {
+                setProgress(100);
                 toast.success('Document uploadé avec succès !');
                 if (refreshStats) refreshStats();
                 setTimeout(() => navigate('/documents'), 1500);
@@ -138,7 +173,7 @@ const Upload = () => {
                 throw new Error(docResult.message || "Erreur lors de la création");
             }
         } catch (error) {
-            console.error('Erreur:', error);
+            console.error('❌ Erreur:', error);
             toast.error(error.message || 'Erreur lors de l\'upload');
         } finally {
             setUploading(false);
@@ -147,17 +182,20 @@ const Upload = () => {
 
     return (
         <div className="max-w-4xl mx-auto">
-            <button onClick={() => navigate('/documents')} className="flex items-center gap-2 text-gray-600 dark:text-gray-400 hover:text-purple-600 mb-6">
+            <button 
+                onClick={() => navigate('/documents')} 
+                className="flex items-center gap-2 text-gray-600 dark:text-gray-400 hover:text-purple-600 mb-6 transition-colors"
+            >
                 <ArrowLeftIcon className="h-4 w-4" /> Retour aux documents
             </button>
 
             <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl overflow-hidden">
                 <div className="p-6 border-b border-gray-100 dark:border-gray-700">
                     <div className="flex items-center gap-3 mb-2">
-                        <span className="text-3xl">{service?.icon}</span>
+                        <span className="text-3xl">{service?.icon || '📄'}</span>
                         <div>
                             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-                                Uploader un document - {language === 'fr' ? service?.name_fr : service?.name_en}
+                                Uploader un document - {language === 'fr' ? service?.name_fr : service?.name_en || 'Service'}
                             </h1>
                             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
                                 Ajoutez un nouveau document à l'archive du service
@@ -176,7 +214,7 @@ const Upload = () => {
                                 type="text"
                                 value={title_fr}
                                 onChange={(e) => setTitleFr(e.target.value)}
-                                className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-purple-500"
+                                className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-purple-500 transition-all"
                                 placeholder="Ex: Rapport annuel 2024"
                                 required
                             />
@@ -189,7 +227,7 @@ const Upload = () => {
                                 type="text"
                                 value={title_en}
                                 onChange={(e) => setTitleEn(e.target.value)}
-                                className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-purple-500"
+                                className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-purple-500 transition-all"
                                 placeholder="Ex: Annual Report 2024"
                                 required
                             />
@@ -205,7 +243,7 @@ const Upload = () => {
                                 value={description_fr}
                                 onChange={(e) => setDescriptionFr(e.target.value)}
                                 rows="4"
-                                className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-purple-500 resize-none"
+                                className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-purple-500 resize-none transition-all"
                                 placeholder="Description détaillée du document..."
                             />
                         </div>
@@ -217,7 +255,7 @@ const Upload = () => {
                                 value={description_en}
                                 onChange={(e) => setDescriptionEn(e.target.value)}
                                 rows="4"
-                                className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-purple-500 resize-none"
+                                className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-purple-500 resize-none transition-all"
                                 placeholder="Detailed document description..."
                             />
                         </div>
@@ -230,7 +268,7 @@ const Upload = () => {
                         <select
                             value={categoryId}
                             onChange={(e) => setCategoryId(e.target.value)}
-                            className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-purple-500"
+                            className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-purple-500 transition-all"
                             required
                         >
                             <option value="">Sélectionnez une catégorie</option>
@@ -245,7 +283,7 @@ const Upload = () => {
                         )}
                     </div>
 
-                    {/* Upload area */}
+                    {/* Zone d'upload avec drag & drop */}
                     <div>
                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                             Fichier <span className="text-red-500">*</span>
@@ -261,7 +299,13 @@ const Upload = () => {
                             `}
                             onClick={() => !file && document.getElementById('file-input').click()}
                         >
-                            <input id="file-input" type="file" onChange={handleFileChange} className="hidden" accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png" />
+                            <input 
+                                id="file-input" 
+                                type="file" 
+                                onChange={handleFileChange} 
+                                className="hidden" 
+                                accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png" 
+                            />
                             
                             {!file ? (
                                 <>
@@ -283,13 +327,33 @@ const Upload = () => {
                                         <p className="font-medium text-gray-900 dark:text-white">{file.name}</p>
                                         <p className="text-sm text-gray-500">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
                                     </div>
-                                    <button type="button" onClick={(e) => { e.stopPropagation(); setFile(null); }} className="p-2 text-red-500 hover:bg-red-50 rounded-xl">
+                                    <button 
+                                        type="button" 
+                                        onClick={(e) => { e.stopPropagation(); setFile(null); }} 
+                                        className="p-2 text-red-500 hover:bg-red-50 rounded-xl transition-colors"
+                                    >
                                         <XCircleIcon className="h-6 w-6" />
                                     </button>
                                 </div>
                             )}
                         </div>
                     </div>
+
+                    {/* Barre de progression */}
+                    {uploading && (
+                        <div className="space-y-2">
+                            <div className="flex justify-between text-sm">
+                                <span className="text-gray-600 dark:text-gray-400">Upload en cours...</span>
+                                <span className="font-medium text-purple-600">{progress}%</span>
+                            </div>
+                            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                                <div
+                                    className="bg-gradient-to-r from-purple-500 to-pink-500 h-2 rounded-full transition-all duration-300"
+                                    style={{ width: `${progress}%` }}
+                                />
+                            </div>
+                        </div>
+                    )}
 
                     <div className="flex gap-4 pt-4">
                         <button
